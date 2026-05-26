@@ -1,0 +1,149 @@
+# =============================================================================
+# 统一模型配置文件 (Combined Configuration)
+# 包含：LTX-2 Bidirectional DMD 与 Wan2.1 Self-Forcing DMD
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 1. 模型路径与基础信息 (Model Paths & Metadata)
+# -----------------------------------------------------------------------------
+model_name: ltx2_av             # [CONFLICT] File 2 使用 transformers_5B_0105
+# generator_ckpt: /gemini/platform/public/aigc/human_guozz2/model/LTX-2.3/ltx-2.3-22b-dev.safetensors # [CONFLICT] File 2 使用 Wan 权重路径
+checkpoint_path: /gemini/platform/public/aigc/human_guozz2/model/LTX-2.3/ltx-2.3-22b-dev.safetensors
+gemma_path: /gemini/platform/public/aigc/human_guozz2/model/gemma-3-12b-it-qat-q4_0-unquantized
+
+# -----------------------------------------------------------------------------
+# 2. 任务与训练逻辑 (Task & Training Logic)
+# -----------------------------------------------------------------------------
+generator_task: bidirectional_av # [CONFLICT] File 2 为 causal_video
+real_task_type: bidirectional_av
+fake_task_type: bidirectional_av
+causal: false                     # 仅 File 2 开启 
+backward_simulation: true        # 两者均开启
+trainer: dmd_ltx23 # 仅 File 2 指定
+distribution_loss: bidirectional_dmd_ltx23
+
+# -----------------------------------------------------------------------------
+# 3. DMD 蒸馏超参数 (DMD Hyperparameters)
+# -----------------------------------------------------------------------------
+generator_grad:
+  model: true
+real_score_grad:
+  model: false
+fake_score_grad:
+  model: true
+
+denoising_step_list:             # [CONFLICT] 步数列表不同，LTX-2 通常包含 0
+  - 1000
+  - 757
+  - 522
+  - 0
+num_train_timestep: 1000
+timestep_shift: 5.0              # 仅 File 2 使用
+
+# 损失函数类型
+denoising_loss_type: velocity    # [CONFLICT] File 2 使用 flow
+distillation_loss: dmd           # [CONFLICT] File 2 使用 dmd_ai2v_5b_selfforcing
+
+# 指引权重 (Guidance)
+real_video_guidance_scale: 3.0
+real_audio_guidance_scale: 5.0
+guidance_scale: 3.0              # 通用项
+
+# -----------------------------------------------------------------------------
+# 4. 训练超参数 (Optimizer & Training Specs)
+# -----------------------------------------------------------------------------
+batch_size: 1
+total_batch_size: 64
+accumulation_steps: 2
+dataloader_num_workers: 1
+
+# gc
+gc_interval: 100
+
+# 学习率控制
+lr: 2.0e-05                   # [CONFLICT] File 2 为 2.0e-06
+generator_lr: 2.0e-05 # 1.0e-05
+critic_lr: 2.0e-5 # 1.0e-05               # [CONFLICT] File 2 为 4.0e-07
+beta1: 0.9                       # [CONFLICT] File 2 为 0.0
+beta2: 0.999
+beta1_critic: 0.0
+beta2_critic: 0.999
+weight_decay: 0.01
+lr_scheduler: constant_with_warmup
+lr_warmup_steps: 100
+
+# loss
+video_loss_weight: 1.0
+audio_loss_weight: 1.0
+audio_start_step: 0
+
+# 更新比例与梯度
+dfake_gen_update_ratio: 5
+max_grad_norm: 3.0
+gradient_checkpointing: true
+mixed_precision_type: bf16       # File 2 明确指定 bf16，File 1 仅为 truea
+mixed_precision: true
+
+# scheduler
+scheduler_type: constant # [TODO]: 需要评估不同 scheduler 对训练效果的影响
+
+# -----------------------------------------------------------------------------
+# 5. 视频/音频维度与数据 (Data & Resolution)
+# -----------------------------------------------------------------------------
+# data loading
+data_path: /path/to/data/prompts.txt
+dataset_paths_txt: /gemini/platform/public/aigc/human_guozz2/code/hys/LTX-2/packages/ltx-distillation/src/ltx_distillation/data/dataset_txts/debug_hn.txt
+train_data_meta:  "/gemini/platform/public/aigc/csh/javg/datasets/openhuman_vid_cat.json"
+enable_bucket: true
+
+# 维度冲突区域
+video_sample_n_frames: 121
+video_num_training_latents: 16                  # [CONFLICT] File 2 使用 21 (training) / 81 (sample)
+video_height: 512
+video_width: 768
+video_sample_size: 640           # 仅 File 2
+video_sample_stride: 1.042       # fps==25 / (25/24) == 24
+frame_rate: 24
+image_or_video_shape: [1, 21, 16, 60, 104] # 仅 File 2 (Wan2.1 Latent 形状)
+num_train_epochs: 10
+
+# 负向提示词 (此处保留 File 1 英文版，File 2 有中文版冲突)
+negative_prompt: "blurry, out of focus, overexposed, underexposed, low contrast, washed out colors, excessive noise, grainy texture, poor lighting, flickering, motion blur, distorted proportions, unnatural skin tones, deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, wrong hand count, artifacts around text, inconsistent perspective, camera shake, incorrect depth of field, background too sharp, background clutter, distracting reflections, harsh shadows, inconsistent lighting direction, color banding, cartoonish rendering, 3D CGI look, unrealistic materials, uncanny valley effect, incorrect ethnicity, wrong gender, exaggerated expressions, wrong gaze direction, mismatched lip sync, silent or muted audio, distorted voice, robotic voice, echo, background noise, off-sync audio, incorrect dialogue, added dialogue, repetitive speech, jittery movement, awkward pauses, incorrect timing, unnatural transitions, inconsistent framing, tilted camera, flat lighting, inconsistent tone, cinematic oversaturation, stylized filters, or AI artifacts."
+
+# -----------------------------------------------------------------------------
+# 6. 分布式与硬件配置 (FSDP & Infrastructure)
+# -----------------------------------------------------------------------------
+sharding_strategy: hybrid_full
+generator_fsdp_wrap_strategy: size
+real_score_fsdp_wrap_strategy: size
+fake_score_fsdp_wrap_strategy: size
+text_encoder_fsdp_wrap_strategy: size
+
+model_cpu_offload: true
+low_vram: false
+
+# -----------------------------------------------------------------------------
+# 7. 日志、监控与 Benchmark
+# -----------------------------------------------------------------------------
+output_path: ./outputs/stage1_bidirectional_dmd
+log_iters: 500
+seed: 42
+
+wandb_project: OmniForcing
+wandb_entity: your-wandb-entity
+disable_wandb: true              # [CONFLICT] 是否启用 wandb
+disable_tensorboard: false
+
+benchmark_enabled: true
+benchmark_iters: 50
+benchmark_video_fps: 24
+benchmark_audio_sample_rate: 24000
+
+# -----------------------------------------------------------------------------
+# 8. 奖励与人脸损失 (Reward & Face Loss - 仅 File 2 涉及)
+# -----------------------------------------------------------------------------
+# enable_reward_loss: false
+# reward_fn: MPSReward
+# reward_fn_kwargs: 
+#   model_path: "wan_models/MPS_overall.pth"
+# enable_face_loss: false

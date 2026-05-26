@@ -1,0 +1,9 @@
+python -m ltx_pipelines.ti2vid_one_stage \
+    --checkpoint-path /gemini/platform/public/aigc/human_guozz2/model/LTX-2.3/ltx-2.3-22b-dev.safetensors \
+    --distilled-lora /gemini/platform/public/aigc/human_guozz2/model/LTX-2.3/ltx-2.3-22b-distilled-lora-384.safetensors 0.8 \
+    --gemma-root /gemini/platform/public/aigc/human_guozz2/model/gemma-3-12b-it-qat-q4_0-unquantized \
+    --prompt "The scene is set at night, with a dark, out-of-focus background that suggests an outdoor or open space, possibly a courtyard, with a hint of warm light from a distant lantern. The atmosphere is somber and reflective. A young East Asian woman, dressed in traditional historical clothing, is the focus of the shot. Her black hair is styled in an intricate updo, adorned with a delicate, jeweled pin. She wears long, dangling earrings made of turquoise stones. Her expression is melancholic and contemplative, with a subtle hint of a sad smile playing on her lips. Her eyes are slightly glossy, as if she is holding back tears, and she looks downward and to the side. She speaks with a soft, wistful tone, her voice filled with a quiet sense of longing and perhaps regret. She says: “He is a character with a chivalrous and fierce nature.”, a faint, bittersweet smile appears, and she briefly closes her eyes. The camera remains static in a medium close-up shot, focusing entirely on her nuanced facial expressions and the emotion she conveys. Soft, ambient music with a melancholic string melody plays gently in the background, enhancing the poignant mood." \
+    --output-path output.mp4
+
+    # --audio-path "/gemini/platform/public/aigc/human_guozz2/code/hys/LTX-2/assets/talk_male_law_10s.wav" \
+    # --image "/gemini/platform/public/aigc/human_guozz2/code/hys/LTX-2/assets/banshen_test.png" 0 0 \ 

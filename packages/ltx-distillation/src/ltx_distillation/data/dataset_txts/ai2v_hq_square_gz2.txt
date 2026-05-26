@@ -1,0 +1,3 @@
+/gemini/platform/public/aigc/human_guozz2/data/ai2v/zhihaowang/celebv_text/celebv_text_01/config_hys_gather.json 
+/gemini/platform/public/aigc/human_guozz2/data/ai2v/zhihaowang/celebv_text/celebv_text_02/config_hys_gather.json 
+/gemini/platform/public/aigc/human_guozz2/data/ai2v/zhihaowang/celebv_text/celebv_text_03/config_hys_gather.json

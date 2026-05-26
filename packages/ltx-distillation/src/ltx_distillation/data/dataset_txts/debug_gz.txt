@@ -1,0 +1,1 @@
+/gemini/platform/public/aigc/human_guozz2/data/ai2v/zhihaowang/openhumanvid/openhuman_vid_004/config_hys_gather.json

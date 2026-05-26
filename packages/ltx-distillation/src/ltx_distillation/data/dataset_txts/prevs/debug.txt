@@ -1,0 +1,1 @@
+/gemini-1/space/human_guozz2/data/wzh/omnihuman_dataset/open_source_dataset/vfhq/config_hys_gather.json

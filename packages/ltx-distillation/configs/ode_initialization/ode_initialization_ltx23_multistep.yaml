@@ -1,0 +1,100 @@
+trainer: ode_regression_ltx23
+distribution_loss: ode
+
+# path
+checkpoint_path: /gemini/platform/public/aigc/human_guozz2/model/LTX-2.3/ltx-2.3-22b-dev.safetensors
+gemma_path: /gemini/platform/public/aigc/human_guozz2/model/gemma-3-12b-it-qat-q4_0-unquantized
+dataset_paths_txt: /gemini/platform/public/aigc/human_guozz2/code/songqy/opensource_code/LTX-2/packages/ODE_sample_latents_3_true
+
+# training args
+use_flex_attention: false # true # switch to SPDA attention
+generator_grad:
+  model: true
+generator_fsdp_wrap_strategy: size
+text_encoder_fsdp_wrap_strategy: size
+num_train_timestep: 10000
+timestep_shift: 5.0
+guidance_scale: 5.0
+denoising_loss_type: flow
+mixed_precision: true
+seed: 12345
+lr: 2.0e-05
+beta1: 0.9
+beta2: 0.999
+beta1_critic: 0.9
+beta2_critic: 0.999
+weight_decay: 0.0
+batch_size: 1
+max_grad_norm: 1.0
+negative_prompt: '色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走'
+image_or_video_shape:
+- 1
+- 21
+- 16
+- 60
+- 104
+
+gradient_checkpointing: true
+num_frame_per_block: 3
+load_raw_video: false
+
+# changed
+logdir: results_ckpts # been overwritten in wan_train.py(覆盖)
+real_name: LTX-2.3-22B
+
+# added
+video_sample_size: 512
+video_sample_stride: 1
+##################################
+video_sample_n_frames: 81 # 33 45 57 81
+num_training_frames: 21 # 9 12 15 21
+max_token_size: 6194 # # 81==8448 # 81==21504 45==12288 57==15360 # 需要128的倍数
+dataloader_num_workers: 2
+image_sample_size: 512
+token_sample_size: 512
+
+##################################
+log_iters: 1000
+accumulation_steps: 2
+gc_interval: 10
+# generator_ckpt: /gemini/platform/public/aigc/human_guozz2/code/songqy/Stream_JAVG/ltx_experiments/0407_ode_3_3/checkpoint_model_002000/model.pt
+##################################
+
+random_hw_adapt: false
+training_with_video_token_length: true
+random_ratio_crop: false
+vae_temporal_compression_ratio: 8
+low_vram: false
+sharding_strategy: hybrid_full
+
+# added infer
+param_dtype: bf16
+bf16_infer: true
+vae_stride: 
+- 4
+- 16
+- 16
+
+# logging
+disable_wandb: true
+ode_data_dir: /gemini/platform/public/aigc/human_guozz2/code/hys/LTX-2/ode_data/0507_multisteps_ode/ode_samples
+
+# change this in the datasets!
+denoising_step_list:
+- 1.0
+- 0.910
+- 0.702
+
+warp_denoising_step: false
+no_visualize: false
+generator_task: causal_video
+generator_cpu_offload: false
+text_encoder_cpu_offload: false
+disable_tensorboard: false
+
+############################# accelerate
+mixed_precision_type: bf16
+report_to: tensorboard
+lr_scheduler: constant_with_warmup
+lr_warmup_steps: 100
+num_train_epochs: 100

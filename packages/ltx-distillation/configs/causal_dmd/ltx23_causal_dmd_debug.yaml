@@ -1,0 +1,155 @@
+# =============================================================================
+# DEBUG 配置 — 单机8卡，低分辨率/短视频，不开 fsdp_offload_params
+# 用于快速验证训练逻辑，确认无误后切换回正式多机配置
+# =============================================================================
+
+debug_mode: true
+
+# -----------------------------------------------------------------------------
+# 1. 模型路径
+# -----------------------------------------------------------------------------
+model_name: ltx2_av
+checkpoint_path: /gemini/platform/public/aigc/human_guozz2/model/LTX-2.3/ltx-2.3-22b-dev.safetensors
+gemma_path: /gemini/platform/public/aigc/human_guozz2/model/gemma-3-12b-it-qat-q4_0-unquantized
+generator_ckpt: /gemini/platform/public/aigc/human_guozz2/code/hys/LTX-2/ltx_experiments/0421_ltx_node_bs32_odeinit/checkpoint_model_005000/model.pt
+
+# -----------------------------------------------------------------------------
+# 2. 任务与训练逻辑
+# -----------------------------------------------------------------------------
+generator_task: causal_av
+real_task_type: bidirectional_av
+fake_task_type: bidirectional_av
+causal: false
+trainer: dmd_ltx23
+training_mode: causal_self_forcing
+distribution_loss: causal_dmd_ltx23
+use_causal_wrapper: true
+generator_use_causal_wrapper: true
+real_score_use_causal_wrapper: false
+fake_score_use_causal_wrapper: false
+use_flex_attention: false
+
+# -----------------------------------------------------------------------------
+# 3. DMD 蒸馏超参数
+# -----------------------------------------------------------------------------
+generator_grad:
+  model: true
+real_score_grad:
+  model: false
+fake_score_grad:
+  model: true
+
+denoising_step_list:
+  - 1000
+  - 757
+  - 522
+  - 0
+num_train_timestep: 1000
+timestep_shift: 5.0
+
+denoising_loss_type: velocity
+distillation_loss: dmd
+
+real_video_guidance_scale: 3.0
+real_audio_guidance_scale: 5.0
+
+# -----------------------------------------------------------------------------
+# 4. 训练超参数
+# -----------------------------------------------------------------------------
+batch_size: 1
+total_batch_size: 8          # debug: 单机8卡 × bs1 × accum1
+accumulation_steps: 1        # 不累积梯度，快速迭代
+dataloader_num_workers: 1
+
+gc_interval: 10              # 更频繁 GC，防止显存碎片
+
+lr: 2.0e-06
+generator_lr: 2.0e-06
+critic_lr: 4.0e-7
+beta1: 0.0
+beta2: 0.999
+beta1_critic: 0.0
+beta2_critic: 0.999
+weight_decay: 0.01
+lr_scheduler: constant_with_warmup
+lr_warmup_steps: 10          # debug 少量 warmup
+
+dfake_gen_update_ratio: 5
+max_grad_norm: 1.0
+gradient_checkpointing: true
+mixed_precision_type: bf16
+mixed_precision: true
+
+scheduler_type: constant
+
+# -----------------------------------------------------------------------------
+# 5. 视频维度与数据 — 大幅缩小以节省显存
+# -----------------------------------------------------------------------------
+data_path: /path/to/data/prompts.txt
+dataset_paths_txt: packages/ltx-distillation/src/ltx_distillation/data/dataset_txts/debug_hn.txt
+train_data_meta: "/gemini/platform/public/aigc/csh/javg/datasets/openhuman_vid_cat_multistate.json"
+enable_bucket: true
+
+# 分辨率从 512×768 降到 256×384（显存约减少 4x）
+video_height: 256
+video_width: 384
+# 帧数从 169 降到 49（~0.25x）
+video_sample_n_frames: 49
+# latent 块数对应调整：49帧 / 8 时间压缩 ≈ 7 latent frames，向上取整到整块
+video_num_training_latents: 7
+video_sample_size: 320
+video_sample_stride: 1.042
+frame_rate: 24
+image_or_video_shape: [1, 7, 16, 32, 48]
+num_train_epochs: 1
+num_frame_per_block: 3
+# 每次只做 1 个 segment，最小化内存
+seq_steps_per_update: 2
+seq_segment_prompt: null
+multi_state_prompt_file: "/gemini/platform/public/aigc/human_guozz2/code/rq/prompt_generate/qwen_response/openhuman_vid_multi_state.jsonl"
+
+negative_prompt: "blurry, out of focus, overexposed, underexposed, low contrast, excessive noise, poor lighting, flickering, motion blur, distorted proportions, unnatural skin tones, artifacts around text, inconsistent perspective, cartoonish rendering, uncanny valley effect, mismatched lip sync, silent or muted audio, distorted voice, off-sync audio, repetitive speech, jittery movement, unnatural transitions, flat lighting, stylized filters, or AI artifacts."
+
+# -----------------------------------------------------------------------------
+# 6. 分布式配置（fsdp offload 关闭）
+# -----------------------------------------------------------------------------
+sharding_strategy: hybrid_full
+generator_fsdp_wrap_strategy: size
+real_score_fsdp_wrap_strategy: size
+fake_score_fsdp_wrap_strategy: size
+text_encoder_fsdp_wrap_strategy: size
+
+low_vram: false
+
+# debug 阶段使用 8-bit AdamW，optimizer state 从 fp32 (12B/param) 降至 ~3B/param，
+# 22B 模型双 optimizer 可省 ~50GB/卡显存，避免 OOM
+use_8bit_optimizer: true
+
+# -----------------------------------------------------------------------------
+# 7. 日志与 Benchmark
+# -----------------------------------------------------------------------------
+output_path: ./outputs/debug
+log_iters: 100
+seed: 42
+
+disable_tensorboard: true    # debug 阶段关闭 tensorboard，减少 IO
+
+benchmark_enabled: false     # debug 不跑 benchmark
+
+# =============================================================================
+# Self-Forcing — 缩短 block 数，减少显存和时间
+# =============================================================================
+self_forcing_runtime: prefix_rerun
+self_forcing_min_generated_blocks: 2
+self_forcing_max_generated_blocks: 2
+self_forcing_loss_scope: last_block
+
+# =============================================================================
+# Loss Weights
+# =============================================================================
+video_loss_weight: 1.0
+audio_loss_weight: 1.0
+audio_start_step: 0
+
+block_weight_mode: uniform
+block_weight_min: 0.5
