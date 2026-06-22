@@ -2,13 +2,16 @@
 # 单机8卡调试脚本 — 关闭 fsdp_offload_params，低分辨率配置，用于快速验证训练逻辑
 export PYTHONPATH=$(pwd)
 
-export GPUS_PER_NODE=8
+export GPUS_PER_NODE=${GPUS_PER_NODE:-8}
 export NCCL_IB_HCA="mlx5_0,mlx5_10,mlx5_3,mlx5_4,mlx5_5,mlx5_6,mlx5_8,mlx5_9"
 export NCCL_SOCKET_IFNAME=eth0
 export NCCL_IB_DISABLE=0
-export NCCL_DEBUG=WARN
+export NCCL_DEBUG=${NCCL_DEBUG:-WARN}
 export NCCL_ALGO=RING
-export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
+export TOKENIZERS_PARALLELISM=${TOKENIZERS_PARALLELISM:-false}
+export OMP_NUM_THREADS=${OMP_NUM_THREADS:-1}
+export PYTHONWARNINGS="${PYTHONWARNINGS:-ignore:Upcasted low precision parameters:UserWarning,ignore:Using a slow image processor:UserWarning}"
 
 BASE_LOG_DIR="./logs"
 TODAY=$(date +'%Y%m%d')

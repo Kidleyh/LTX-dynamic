@@ -57,7 +57,7 @@ real_audio_guidance_scale: 5.0
 # 4. 训练超参数
 # -----------------------------------------------------------------------------
 batch_size: 1
-total_batch_size: 8          # debug: 单机8卡 × bs1 × accum1
+total_batch_size: 8          # debug: 8 GPUs x bs1 x accum1
 accumulation_steps: 1        # 不累积梯度，快速迭代
 dataloader_num_workers: 1
 
@@ -85,22 +85,25 @@ scheduler_type: constant
 # -----------------------------------------------------------------------------
 # 5. 视频维度与数据 — 大幅缩小以节省显存
 # -----------------------------------------------------------------------------
+dataset_type: unified
 data_path: /path/to/data/prompts.txt
 dataset_paths_txt: packages/ltx-distillation/src/ltx_distillation/data/dataset_txts/debug_hn.txt
-train_data_meta: "/gemini/platform/public/aigc/csh/javg/datasets/openhuman_vid_cat_multistate.json"
+# train_data_meta:  "/gemini/platform/public/aigc/csh/javg/datasets/openhuman_vid_cat_multistate.json"
+train_data_meta: "/gemini/platform/public/aigc/human_guozz2/data/basemodel_train/classification/all_classfication/stage1/openhumanvid_v2.json"
+unified_dataset_max_items: 128
 enable_bucket: true
 
-# 分辨率从 512×768 降到 256×384（显存约减少 4x）
-video_height: 256
-video_width: 384
-# 帧数从 169 降到 49（~0.25x）
-video_sample_n_frames: 49
-# latent 块数对应调整：49帧 / 8 时间压缩 ≈ 7 latent frames，向上取整到整块
-video_num_training_latents: 7
-video_sample_size: 320
+# Debug memory cut: 128x192 resolution for 4-GPU OOM recovery
+video_height: 128
+video_width: 192
+# Debug memory cut: 25 frames for shorter sequence length
+video_sample_n_frames: 25
+# 25 frames -> (25 - 1) / 8 + 1 = 4 latent frames
+video_num_training_latents: 4
+video_sample_size: 160
 video_sample_stride: 1.042
 frame_rate: 24
-image_or_video_shape: [1, 7, 16, 32, 48]
+image_or_video_shape: [1, 4, 16, 16, 24]
 num_train_epochs: 1
 num_frame_per_block: 3
 # 每次只做 1 个 segment，最小化内存
@@ -137,11 +140,11 @@ disable_tensorboard: true    # debug 阶段关闭 tensorboard，减少 IO
 benchmark_enabled: false     # debug 不跑 benchmark
 
 # =============================================================================
-# Self-Forcing — 缩短 block 数，减少显存和时间
+# Self-Forcing: 4 latent frames allow only one 3-frame generated block
 # =============================================================================
 self_forcing_runtime: prefix_rerun
-self_forcing_min_generated_blocks: 2
-self_forcing_max_generated_blocks: 2
+self_forcing_min_generated_blocks: 1
+self_forcing_max_generated_blocks: 1
 self_forcing_loss_scope: last_block
 
 # =============================================================================

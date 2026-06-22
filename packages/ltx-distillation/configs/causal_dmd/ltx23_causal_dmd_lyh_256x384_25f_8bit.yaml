@@ -98,17 +98,18 @@ data_path: /path/to/data/prompts.txt
 dataset_paths_txt: packages/ltx-distillation/src/ltx_distillation/data/dataset_txts/debug_hn.txt
 # train_data_meta:  "/gemini/platform/public/aigc/csh/javg/datasets/openhuman_vid_cat_multistate.json"
 train_data_meta: "data_fliter/sample_720p_200f_20000.json"
+unified_dataset_max_items: 256
 enable_bucket: true
 
 # 维度冲突区域
-video_sample_n_frames: 121
-video_num_training_latents: 16                  # 121 frames -> (121 - 1) / 8 + 1 latent frames
-video_height: 512
-video_width: 768
-video_sample_size: 640           # 仅 File 2
+video_sample_n_frames: 25
+video_num_training_latents: 4                   # 25 frames -> (25 - 1) / 8 + 1 latent frames
+video_height: 256
+video_width: 384
+video_sample_size: 320           # 仅 File 2
 video_sample_stride: 1.042       # fps==25 / (25/24) == 24
 frame_rate: 24
-image_or_video_shape: [1, 16, 16, 64, 96] # LTX latent shape for 121 frames at 512x768
+image_or_video_shape: [1, 4, 16, 32, 48] # LTX latent shape for 25 frames at 256x384
 num_train_epochs: 10
 num_frame_per_block: 3
 seq_steps_per_update: 2   # Method-B: number of consecutive segments per sequence (1 = single-segment, same as original)
@@ -133,7 +134,7 @@ low_vram: false
 # 7. 日志、监控与 Benchmark
 # -----------------------------------------------------------------------------
 output_path: ./outputs/stage1_bidirectional_dmd
-log_iters: 500
+log_iters: 20
 seed: 42
 
 disable_tensorboard: false
@@ -156,8 +157,8 @@ benchmark_audio_sample_rate: 24000
 # Self-Forcing Configuration
 # =============================================================================
 self_forcing_runtime: prefix_rerun       # prefix_rerun or kv_cache
-self_forcing_min_generated_blocks: 3
-self_forcing_max_generated_blocks: 3
+self_forcing_min_generated_blocks: 1
+self_forcing_max_generated_blocks: 1
 self_forcing_loss_scope: last_block      # Loss computed on last generated block
 
 # =============================================================================
@@ -171,3 +172,6 @@ audio_start_step: 0
 # uniform: all blocks equal (default). linear_ramp: ramp from block_weight_min to 1.0.
 block_weight_mode: uniform
 block_weight_min: 0.5
+
+
+use_8bit_optimizer: true

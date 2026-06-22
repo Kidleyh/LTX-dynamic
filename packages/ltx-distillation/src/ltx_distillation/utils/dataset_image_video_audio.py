@@ -298,7 +298,11 @@ class ImageVideoAudioDataset(Dataset):
                 if len(sample) > 0:
                     break
             except Exception as e:
-                print(e, self.dataset[idx % len(self.dataset)])
+                if getattr(self, "_logged_sample_errors", 0) < 5:
+                    item = self.dataset[idx % len(self.dataset)]
+                    path = item.get("file_path", item.get("data_path", "<unknown>")) if isinstance(item, dict) else "<unknown>"
+                    print(f"[dataset warning] skipped sample idx={idx}: {type(e).__name__}: {e}; path={path}")
+                    self._logged_sample_errors = getattr(self, "_logged_sample_errors", 0) + 1
                 idx = random.randint(0, self.length-1)
 
         return sample

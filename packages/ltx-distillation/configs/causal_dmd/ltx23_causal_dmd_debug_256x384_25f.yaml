@@ -1,28 +1,26 @@
 # =============================================================================
-# 统一模型配置文件 (Combined Configuration)
-# 包含：LTX-2 Bidirectional DMD 与 Wan2.1 Self-Forcing DMD
+# DEBUG 配置 — 单机8卡，低分辨率/短视频，不开 fsdp_offload_params
+# 用于快速验证训练逻辑，确认无误后切换回正式多机配置
 # =============================================================================
 
+debug_mode: true
+
 # -----------------------------------------------------------------------------
-# 1. 模型路径与基础信息 (Model Paths & Metadata)
+# 1. 模型路径
 # -----------------------------------------------------------------------------
-model_name: ltx2_av             # [CONFLICT] File 2 使用 transformers_5B_0105
-# generator_ckpt: /gemini/platform/public/aigc/human_guozz2/model/LTX-2.3/ltx-2.3-22b-dev.safetensors # [CONFLICT] File 2 使用 Wan 权重路径
+model_name: ltx2_av
 checkpoint_path: /gemini/platform/public/aigc/human_guozz2/model/LTX-2.3/ltx-2.3-22b-dev.safetensors
 gemma_path: /gemini/platform/public/aigc/human_guozz2/model/gemma-3-12b-it-qat-q4_0-unquantized
-# generator initialization
 generator_ckpt: /gemini/platform/public/aigc/human_guozz2/code/hys/LTX-2/ltx_experiments/0421_ltx_node_bs32_odeinit/checkpoint_model_005000/model.pt
 
-# TODO: omniforcing还加载了generator bootstrap以及critic权重
-
 # -----------------------------------------------------------------------------
-# 2. 任务与训练逻辑 (Task & Training Logic)
+# 2. 任务与训练逻辑
 # -----------------------------------------------------------------------------
-generator_task: causal_av # [CONFLICT] File 2 为 causal_video
+generator_task: causal_av
 real_task_type: bidirectional_av
 fake_task_type: bidirectional_av
-causal: false                     # 仅 File 2 开启 
-trainer: dmd_ltx23 # 仅 File 2 指定
+causal: false
+trainer: dmd_ltx23
 training_mode: causal_self_forcing
 distribution_loss: causal_dmd_ltx23
 use_causal_wrapper: true
@@ -30,8 +28,9 @@ generator_use_causal_wrapper: true
 real_score_use_causal_wrapper: false
 fake_score_use_causal_wrapper: false
 use_flex_attention: false
+
 # -----------------------------------------------------------------------------
-# 3. DMD 蒸馏超参数 (DMD Hyperparameters)
+# 3. DMD 蒸馏超参数
 # -----------------------------------------------------------------------------
 generator_grad:
   model: true
@@ -40,86 +39,82 @@ real_score_grad:
 fake_score_grad:
   model: true
 
-denoising_step_list:             # [CONFLICT] 步数列表不同，LTX-2 通常包含 0
+denoising_step_list:
   - 1000
   - 757
   - 522
   - 0
 num_train_timestep: 1000
-timestep_shift: 5.0              # 仅 File 2 使用
+timestep_shift: 5.0
 
-# 损失函数类型
-denoising_loss_type: velocity    # [CONFLICT] File 2 使用 flow
-distillation_loss: dmd           # [CONFLICT] File 2 使用 dmd_ai2v_5b_selfforcing
+denoising_loss_type: velocity
+distillation_loss: dmd
 
-# 指引权重 (Guidance)
-real_video_guidance_scale: 3.0 # 5.0
-real_audio_guidance_scale: 5.0 # 9.0
+real_video_guidance_scale: 3.0
+real_audio_guidance_scale: 5.0
 
 # -----------------------------------------------------------------------------
-# 4. 训练超参数 (Optimizer & Training Specs)
+# 4. 训练超参数
 # -----------------------------------------------------------------------------
 batch_size: 1
-total_batch_size: 8
-accumulation_steps: 2
+total_batch_size: 8          # debug: 8 GPUs x bs1 x accum1
+accumulation_steps: 1        # 不累积梯度，快速迭代
 dataloader_num_workers: 1
 
-# gc
-gc_interval: 100
+gc_interval: 10              # 更频繁 GC，防止显存碎片
 
-# 学习率控制
-lr: 2.0e-06                   # [CONFLICT] File 2 为 2.0e-06
-generator_lr: 2.0e-06 # 1.0e-05
-critic_lr: 4.0e-7 # 1.0e-05               # [CONFLICT] File 2 为 4.0e-07
-beta1: 0.0                       # [CONFLICT] File 2 为 0.0
+lr: 2.0e-06
+generator_lr: 2.0e-06
+critic_lr: 4.0e-7
+beta1: 0.0
 beta2: 0.999
 beta1_critic: 0.0
 beta2_critic: 0.999
 weight_decay: 0.01
 lr_scheduler: constant_with_warmup
-lr_warmup_steps: 100
+lr_warmup_steps: 10          # debug 少量 warmup
 
-# 更新比例与梯度
 dfake_gen_update_ratio: 5
 max_grad_norm: 1.0
 gradient_checkpointing: true
-mixed_precision_type: bf16       # File 2 明确指定 bf16，File 1 仅为 truea
+mixed_precision_type: bf16
 mixed_precision: true
 
-# scheduler
-scheduler_type: constant # [TODO]: 需要评估不同 scheduler 对训练效果的影响
+scheduler_type: constant
 
 # -----------------------------------------------------------------------------
-# 5. 视频/音频维度与数据 (Data & Resolution)
+# 5. 视频维度与数据 — 大幅缩小以节省显存
 # -----------------------------------------------------------------------------
-# data loading
 dataset_type: unified
 data_path: /path/to/data/prompts.txt
 dataset_paths_txt: packages/ltx-distillation/src/ltx_distillation/data/dataset_txts/debug_hn.txt
 # train_data_meta:  "/gemini/platform/public/aigc/csh/javg/datasets/openhuman_vid_cat_multistate.json"
-train_data_meta: "data_fliter/sample_720p_200f_20000.json"
+train_data_meta: "/gemini/platform/public/aigc/human_guozz2/data/basemodel_train/classification/all_classfication/stage1/openhumanvid_v2.json"
+unified_dataset_max_items: 128
 enable_bucket: true
 
-# 维度冲突区域
-video_sample_n_frames: 121
-video_num_training_latents: 16                  # 121 frames -> (121 - 1) / 8 + 1 latent frames
-video_height: 512
-video_width: 768
-video_sample_size: 640           # 仅 File 2
-video_sample_stride: 1.042       # fps==25 / (25/24) == 24
+# Debug resolution sweep: same as debug, only spatial size raised to 256x384
+video_height: 256
+video_width: 384
+# Debug memory cut: 25 frames for shorter sequence length
+video_sample_n_frames: 25
+# 25 frames -> (25 - 1) / 8 + 1 = 4 latent frames
+video_num_training_latents: 4
+video_sample_size: 320
+video_sample_stride: 1.042
 frame_rate: 24
-image_or_video_shape: [1, 16, 16, 64, 96] # LTX latent shape for 121 frames at 512x768
-num_train_epochs: 10
+image_or_video_shape: [1, 4, 16, 32, 48]
+num_train_epochs: 1
 num_frame_per_block: 3
-seq_steps_per_update: 2   # Method-B: number of consecutive segments per sequence (1 = single-segment, same as original)
-seq_segment_prompt: null   # fallback prompt for segments beyond the first when file lookup misses; null = reuse batch prompt
+# 每次只做 1 个 segment，最小化内存
+seq_steps_per_update: 2
+seq_segment_prompt: null
 multi_state_prompt_file: "/gemini/platform/public/aigc/human_guozz2/code/rq/prompt_generate/qwen_response/openhuman_vid_multi_state.jsonl"
 
-# 负向提示词 (此处保留 File 1 英文版，File 2 有中文版冲突)
 negative_prompt: "blurry, out of focus, overexposed, underexposed, low contrast, excessive noise, poor lighting, flickering, motion blur, distorted proportions, unnatural skin tones, artifacts around text, inconsistent perspective, cartoonish rendering, uncanny valley effect, mismatched lip sync, silent or muted audio, distorted voice, off-sync audio, repetitive speech, jittery movement, unnatural transitions, flat lighting, stylized filters, or AI artifacts."
 
 # -----------------------------------------------------------------------------
-# 6. 分布式与硬件配置 (FSDP & Infrastructure)
+# 6. 分布式配置（fsdp offload 关闭）
 # -----------------------------------------------------------------------------
 sharding_strategy: hybrid_full
 generator_fsdp_wrap_strategy: size
@@ -129,45 +124,35 @@ text_encoder_fsdp_wrap_strategy: size
 
 low_vram: false
 
+# debug 阶段使用 8-bit AdamW，optimizer state 从 fp32 (12B/param) 降至 ~3B/param，
+# 22B 模型双 optimizer 可省 ~50GB/卡显存，避免 OOM
+use_8bit_optimizer: true
+
 # -----------------------------------------------------------------------------
-# 7. 日志、监控与 Benchmark
+# 7. 日志与 Benchmark
 # -----------------------------------------------------------------------------
-output_path: ./outputs/stage1_bidirectional_dmd
-log_iters: 500
+output_path: ./outputs/debug_256x384_25f
+log_iters: 100
 seed: 42
 
-disable_tensorboard: false
+disable_tensorboard: true    # debug 阶段关闭 tensorboard，减少 IO
 
-benchmark_enabled: true
-benchmark_iters: 50
-benchmark_video_fps: 24
-benchmark_audio_sample_rate: 24000
-
-# -----------------------------------------------------------------------------
-# 8. 奖励与人脸损失 (Reward & Face Loss - 仅 File 2 涉及)
-# -----------------------------------------------------------------------------
-# enable_reward_loss: false
-# reward_fn: MPSReward
-# reward_fn_kwargs: 
-#   model_path: "wan_models/MPS_overall.pth"
-# enable_face_loss: false
+benchmark_enabled: false     # debug 不跑 benchmark
 
 # =============================================================================
-# Self-Forcing Configuration
+# Self-Forcing: 4 latent frames allow only one 3-frame generated block
 # =============================================================================
-self_forcing_runtime: prefix_rerun       # prefix_rerun or kv_cache
-self_forcing_min_generated_blocks: 3
-self_forcing_max_generated_blocks: 3
-self_forcing_loss_scope: last_block      # Loss computed on last generated block
+self_forcing_runtime: prefix_rerun
+self_forcing_min_generated_blocks: 1
+self_forcing_max_generated_blocks: 1
+self_forcing_loss_scope: last_block
 
 # =============================================================================
-# Loss Weights and Block-Aware Weighting
+# Loss Weights
 # =============================================================================
 video_loss_weight: 1.0
 audio_loss_weight: 1.0
 audio_start_step: 0
 
-# Block-aware loss weighting for over-exposure suppression.
-# uniform: all blocks equal (default). linear_ramp: ramp from block_weight_min to 1.0.
 block_weight_mode: uniform
 block_weight_min: 0.5

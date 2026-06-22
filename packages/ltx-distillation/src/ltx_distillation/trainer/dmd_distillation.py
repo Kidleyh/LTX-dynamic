@@ -37,6 +37,7 @@ from functools import partial
 import numpy as np
 import random
 from ltx_distillation.utils.dataset_image_video_audio import ImageVideoAudioDataset, get_random_mask
+from ltx_distillation.data.ltx_unified_dataset import build_ltx_unified_dataset
 from ltx_distillation.utils.bucket_sampler import (AspectRatioBatchImageVideoSampler, 
                                   ASPECT_RATIO_512, 
                                   RandomSampler, 
@@ -524,16 +525,23 @@ class LTXDMDTrainer:
     def _init_dataloader(self, config):
 
         # Step 3: Initialize the dataloader
-        train_dataset = ImageVideoAudioDataset(
-            config.train_data_meta,
-            video_sample_size=config.video_sample_size,
-            enable_bucket=config.enable_bucket, 
-            enable_inpaint=True,
-        )
+        dataset_type = getattr(config, "dataset_type", "legacy")
+        if dataset_type == "unified":
+            train_dataset = build_ltx_unified_dataset(config)
+            sampler_metadata = train_dataset.dataset
+            print("[DATASET] using unified dataset adapter")
+        else:
+            train_dataset = ImageVideoAudioDataset(
+                config.train_data_meta,
+                video_sample_size=config.video_sample_size,
+                enable_bucket=config.enable_bucket,
+                enable_inpaint=True,
+            )
+            sampler_metadata = train_dataset.dataset
         aspect_ratio_sample_size = {key : [x / 512 * config.video_sample_size for x in ASPECT_RATIO_512[key]] for key in ASPECT_RATIO_512.keys()}
         batch_sampler_generator = torch.Generator().manual_seed(config.seed)
         batch_sampler = AspectRatioBatchImageVideoSampler(
-            sampler=RandomSampler(train_dataset, generator=batch_sampler_generator), dataset=train_dataset.dataset, 
+            sampler=RandomSampler(train_dataset, generator=batch_sampler_generator), dataset=sampler_metadata, 
             batch_size=config.batch_size, drop_last=True,
             aspect_ratios=aspect_ratio_sample_size,
         )

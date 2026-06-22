@@ -921,7 +921,12 @@ class AudioVisualDataset(Dataset):
                 data = self.pipeline(data_info)
             except Exception as e:
                 data = None
-                print(e, self.dataset[idx % len(self.dataset)])
+                if getattr(self, "_logged_sample_errors", 0) < 5:
+                    item = self.dataset[idx % len(self.dataset)]
+                    path = getattr(item, "data_path", getattr(item, "file_path", "<unknown>"))
+                    task = getattr(item, "train_task", "<unknown>")
+                    print(f"[dataset warning] refetch idx={idx}: {type(e).__name__}: {e}; task={task}; path={path}")
+                    self._logged_sample_errors = getattr(self, "_logged_sample_errors", 0) + 1
             # Broken images or random augmentations may cause the returned data
             # to be None
             if data is None:

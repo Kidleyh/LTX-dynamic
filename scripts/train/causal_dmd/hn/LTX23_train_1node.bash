@@ -17,6 +17,7 @@ mkdir -p "$LOG_DIR"
 until (
     TS=$(date +'%Y%m%d_%H%M%S')
     LOGFILE="$LOG_DIR/log_train_0_$TS.log"
+    echo "[$(date +'%F %T')] 启动单机正式训练，日志: $LOGFILE"
     nohup accelerate launch \
         --num_processes $GPUS_PER_NODE \
         --num_machines 1 \
