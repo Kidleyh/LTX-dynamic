@@ -6,7 +6,7 @@ export PYTHONPATH=$(pwd)
 # Gemini multi-node defaults. Override these env vars if your launcher uses
 # different names or a non-Gemini environment.
 export GPUS_PER_NODE=${GPUS_PER_NODE:-8}
-export NNODES=${NNODES:-${WORLD_SIZE:-2}}
+export NNODES=${NNODES:-${WORLD_SIZE:-4}}
 export NODE_RANK=${NODE_RANK:-${RANK:-${GEMINI_CURRENT_TASK_ROLE_CURRENT_TASK_INDEX:-0}}}
 export MASTER_ADDR=${MASTER_ADDR:-${GEMINI_HOST_IP_taskrole1_0:-127.0.0.1}}
 export MASTER_PORT=${MASTER_PORT:-12345}
@@ -26,9 +26,9 @@ LOG_DIR="$BASE_LOG_DIR/$TODAY"
 mkdir -p "$LOG_DIR"
 
 TS=$(date +'%Y%m%d_%H%M%S')
-LOGFILE="$LOG_DIR/log_train_2nodes_rank${NODE_RANK}_${TS}.log"
-CONFIG_PATH=${CONFIG_PATH:-packages/ltx-distillation/configs/causal_dmd/ltx23_causal_dmd_lyh_512x768_121f_8bit_seq1.yaml}
-RUN_NAME=${RUN_NAME:-ltx23_causal_dmd_2nodes_512x768_121f_8bit_seq1_$(date +'%m%d_%H%M')}
+LOGFILE="$LOG_DIR/log_train_4nodes_rank${NODE_RANK}_${TS}.log"
+CONFIG_PATH=${CONFIG_PATH:-packages/ltx-distillation/configs/causal_dmd/ltx23_causal_dmd_lyh_512x768_121f_normalopt_seq2_bs4_4node.yaml}
+RUN_NAME=${RUN_NAME:-ltx23_causal_dmd_4nodes_512x768_121f_normalopt_seq2_bs4_cpuoffload_$(date +'%m%d_%H%M')}
 
 DISTRIBUTED_ARGS=(
   --num_processes "$WORLD_SIZE"
@@ -38,7 +38,7 @@ DISTRIBUTED_ARGS=(
   --main_process_port "$MASTER_PORT"
 )
 
-echo "[$(date +'%F %T')] 启动 2-node LTX23 训练"
+echo "[$(date +'%F %T')] 启动 4-node LTX23 训练"
 echo "  NODE_RANK=$NODE_RANK NNODES=$NNODES GPUS_PER_NODE=$GPUS_PER_NODE WORLD_SIZE=$WORLD_SIZE"
 echo "  MASTER_ADDR=$MASTER_ADDR MASTER_PORT=$MASTER_PORT"
 echo "  CONFIG_PATH=$CONFIG_PATH"
@@ -57,7 +57,7 @@ nohup accelerate launch \
   --fsdp_backward_prefetch BACKWARD_PRE \
   --fsdp_cpu_ram_efficient_loading true \
   --fsdp_sync_module_states true \
-  --fsdp_offload_params false \
+  --fsdp_offload_params true \
   scripts/train/LTX_train.py \
   --config_path "$CONFIG_PATH" \
   --logdir "ltx_experiments/$RUN_NAME" > "$LOGFILE" 2>&1 &

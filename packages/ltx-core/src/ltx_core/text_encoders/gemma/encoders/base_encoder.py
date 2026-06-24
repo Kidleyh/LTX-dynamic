@@ -39,7 +39,7 @@ class GemmaTextEncoder(torch.nn.Module):
             (hidden_states, attention_mask) where hidden_states is a tuple of per-layer tensors.
         """
         token_pairs = self.tokenizer.tokenize_with_weights(text)["gemma"]
-        device = torch.device("cuda", torch.cuda.current_device()) if torch.cuda.is_available() else self.model.device
+        device = self.model.device
         input_ids = torch.tensor([[t[0] for t in token_pairs]], device=device)
         attention_mask = torch.tensor([[w[1] for w in token_pairs]], device=device)
         outputs = self.model.model(input_ids=input_ids, attention_mask=attention_mask, output_hidden_states=True)

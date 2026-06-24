@@ -28,7 +28,7 @@ mkdir -p "$LOG_DIR"
 TS=$(date +'%Y%m%d_%H%M%S')
 LOGFILE="$LOG_DIR/log_train_2nodes_rank${NODE_RANK}_${TS}.log"
 CONFIG_PATH=${CONFIG_PATH:-packages/ltx-distillation/configs/causal_dmd/ltx23_causal_dmd_lyh_512x768_121f_8bit_seq1.yaml}
-RUN_NAME=${RUN_NAME:-ltx23_causal_dmd_2nodes_512x768_121f_8bit_seq1_$(date +'%m%d_%H%M')}
+RUN_NAME=${RUN_NAME:-ltx23_causal_dmd_2nodes_512x768_121f_8bit_seq1_cpuoffload_$(date +%m%d_%H%M)}
 
 DISTRIBUTED_ARGS=(
   --num_processes "$WORLD_SIZE"
@@ -57,7 +57,7 @@ nohup accelerate launch \
   --fsdp_backward_prefetch BACKWARD_PRE \
   --fsdp_cpu_ram_efficient_loading true \
   --fsdp_sync_module_states true \
-  --fsdp_offload_params false \
+  --fsdp_offload_params true \
   scripts/train/LTX_train.py \
   --config_path "$CONFIG_PATH" \
   --logdir "ltx_experiments/$RUN_NAME" > "$LOGFILE" 2>&1 &

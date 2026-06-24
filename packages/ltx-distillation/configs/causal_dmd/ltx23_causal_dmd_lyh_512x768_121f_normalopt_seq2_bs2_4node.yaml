@@ -1,0 +1,180 @@
+# =============================================================================
+# 统一模型配置文件 (Combined Configuration)
+# 包含：LTX-2 Bidirectional DMD 与 Wan2.1 Self-Forcing DMD
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 1. 模型路径与基础信息 (Model Paths & Metadata)
+# -----------------------------------------------------------------------------
+model_name: ltx2_av             # [CONFLICT] File 2 使用 transformers_5B_0105
+# generator_ckpt: /gemini/platform/public/aigc/human_guozz2/model/LTX-2.3/ltx-2.3-22b-dev.safetensors # [CONFLICT] File 2 使用 Wan 权重路径
+checkpoint_path: /gemini/platform/public/aigc/human_guozz2/model/LTX-2.3/ltx-2.3-22b-dev.safetensors
+gemma_path: /gemini/platform/public/aigc/human_guozz2/model/gemma-3-12b-it-qat-q4_0-unquantized
+# generator initialization
+generator_ckpt: /gemini/platform/public/aigc/human_guozz2/code/hys/LTX-2/ltx_experiments/0421_ltx_node_bs32_odeinit/checkpoint_model_005000/model.pt
+
+# TODO: omniforcing还加载了generator bootstrap以及critic权重
+
+# -----------------------------------------------------------------------------
+# 2. 任务与训练逻辑 (Task & Training Logic)
+# -----------------------------------------------------------------------------
+generator_task: causal_av # [CONFLICT] File 2 为 causal_video
+real_task_type: bidirectional_av
+fake_task_type: bidirectional_av
+causal: false                     # 仅 File 2 开启 
+trainer: dmd_ltx23 # 仅 File 2 指定
+training_mode: causal_self_forcing
+distribution_loss: causal_dmd_ltx23
+use_causal_wrapper: true
+generator_use_causal_wrapper: true
+real_score_use_causal_wrapper: false
+fake_score_use_causal_wrapper: false
+use_flex_attention: false
+# -----------------------------------------------------------------------------
+# 3. DMD 蒸馏超参数 (DMD Hyperparameters)
+# -----------------------------------------------------------------------------
+generator_grad:
+  model: true
+real_score_grad:
+  model: false
+fake_score_grad:
+  model: true
+
+denoising_step_list:             # LTX official 8-step sigma targets: [1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875]
+  - 1000
+  - 994
+  - 988
+  - 981
+  - 975
+  - 909
+  - 725
+  - 422
+num_train_timestep: 1000
+timestep_shift: 5.0              # 仅 File 2 使用
+
+# 损失函数类型
+denoising_loss_type: velocity    # [CONFLICT] File 2 使用 flow
+distillation_loss: dmd           # [CONFLICT] File 2 使用 dmd_ai2v_5b_selfforcing
+
+# 指引权重 (Guidance)
+real_video_guidance_scale: 3.0 # 5.0
+real_audio_guidance_scale: 5.0 # 9.0
+
+# -----------------------------------------------------------------------------
+# 4. 训练超参数 (Optimizer & Training Specs)
+# -----------------------------------------------------------------------------
+batch_size: 2
+total_batch_size: 64
+accumulation_steps: 2
+dataloader_num_workers: 1
+
+# gc
+gc_interval: 100
+
+# 学习率控制
+lr: 2.0e-06                   # [CONFLICT] File 2 为 2.0e-06
+generator_lr: 2.0e-06 # 1.0e-05
+critic_lr: 4.0e-7 # 1.0e-05               # [CONFLICT] File 2 为 4.0e-07
+beta1: 0.0                       # [CONFLICT] File 2 为 0.0
+beta2: 0.999
+beta1_critic: 0.0
+beta2_critic: 0.999
+weight_decay: 0.01
+lr_scheduler: constant_with_warmup
+lr_warmup_steps: 100
+
+# 更新比例与梯度
+dfake_gen_update_ratio: 5
+max_grad_norm: 1.0
+gradient_checkpointing: true
+mixed_precision_type: bf16       # File 2 明确指定 bf16，File 1 仅为 truea
+mixed_precision: true
+
+# scheduler
+scheduler_type: constant # [TODO]: 需要评估不同 scheduler 对训练效果的影响
+
+# -----------------------------------------------------------------------------
+# 5. 视频/音频维度与数据 (Data & Resolution)
+# -----------------------------------------------------------------------------
+# data loading
+dataset_type: unified
+data_path: /path/to/data/prompts.txt
+dataset_paths_txt: packages/ltx-distillation/src/ltx_distillation/data/dataset_txts/debug_hn.txt
+# train_data_meta:  "/gemini/platform/public/aigc/csh/javg/datasets/openhuman_vid_cat_multistate.json"
+train_data_meta: "data_fliter/sample_720p_200f_20000.json"
+unified_dataset_max_items: 20000
+enable_bucket: true
+
+# 维度冲突区域
+video_sample_n_frames: 121
+video_num_training_latents: 16                  # 121 frames -> (121 - 1) / 8 + 1 latent frames
+video_height: 512
+video_width: 768
+video_sample_size: 768           # 仅 File 2
+video_sample_stride: 1.042       # fps==25 / (25/24) == 24
+frame_rate: 24
+image_or_video_shape: [1, 16, 16, 64, 96] # LTX latent shape for 121 frames at 512x768
+num_train_epochs: 2
+num_frame_per_block: 3
+seq_steps_per_update: 2   # seq2 smoke for 121f: tests multi-segment causal update
+seq_segment_prompt: null   # fallback prompt for segments beyond the first when file lookup misses; null = reuse batch prompt
+multi_state_prompt_file: "/gemini/platform/public/aigc/human_guozz2/code/rq/prompt_generate/qwen_response/openhuman_vid_multi_state.jsonl"
+
+# 负向提示词 (此处保留 File 1 英文版，File 2 有中文版冲突)
+negative_prompt: "blurry, out of focus, overexposed, underexposed, low contrast, excessive noise, poor lighting, flickering, motion blur, distorted proportions, unnatural skin tones, artifacts around text, inconsistent perspective, cartoonish rendering, uncanny valley effect, mismatched lip sync, silent or muted audio, distorted voice, off-sync audio, repetitive speech, jittery movement, unnatural transitions, flat lighting, stylized filters, or AI artifacts."
+
+# -----------------------------------------------------------------------------
+# 6. 分布式与硬件配置 (FSDP & Infrastructure)
+# -----------------------------------------------------------------------------
+sharding_strategy: hybrid_full
+generator_fsdp_wrap_strategy: size
+real_score_fsdp_wrap_strategy: size
+fake_score_fsdp_wrap_strategy: size
+text_encoder_fsdp_wrap_strategy: size
+
+low_vram: false
+
+use_8bit_optimizer: false
+
+# -----------------------------------------------------------------------------
+# 7. 日志、监控与 Benchmark
+# -----------------------------------------------------------------------------
+output_path: ./outputs/stage1_bidirectional_dmd
+log_iters: 500
+seed: 42
+
+disable_tensorboard: false
+
+benchmark_enabled: true
+benchmark_iters: 50
+benchmark_video_fps: 24
+benchmark_audio_sample_rate: 24000
+
+# -----------------------------------------------------------------------------
+# 8. 奖励与人脸损失 (Reward & Face Loss - 仅 File 2 涉及)
+# -----------------------------------------------------------------------------
+# enable_reward_loss: false
+# reward_fn: MPSReward
+# reward_fn_kwargs: 
+#   model_path: "wan_models/MPS_overall.pth"
+# enable_face_loss: false
+
+# =============================================================================
+# Self-Forcing Configuration
+# =============================================================================
+self_forcing_runtime: prefix_rerun       # prefix_rerun or kv_cache
+self_forcing_min_generated_blocks: 1
+self_forcing_max_generated_blocks: 1
+self_forcing_loss_scope: last_block      # Loss computed on last generated block
+
+# =============================================================================
+# Loss Weights and Block-Aware Weighting
+# =============================================================================
+video_loss_weight: 1.0
+audio_loss_weight: 1.0
+audio_start_step: 0
+
+# Block-aware loss weighting for over-exposure suppression.
+# uniform: all blocks equal (default). linear_ramp: ramp from block_weight_min to 1.0.
+block_weight_mode: uniform
+block_weight_min: 0.5
