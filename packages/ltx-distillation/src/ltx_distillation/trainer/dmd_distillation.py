@@ -1093,6 +1093,74 @@ class LTXDMDTrainer:
         height = new_batch["height"]
         video_num_frames = new_batch["video_num_frames"]
 
+        if not (
+            hasattr(self.model, "generator_loss_segment")
+            and hasattr(self.model, "critic_loss_segment")
+        ):
+            # Bidirectional DMD uses the original full-sample loss API. The
+            # segment API is only implemented by the causal/self-forcing model.
+            update_params_flag_generator = False
+            update_params_flag_critic = False
+
+            if train_generator:
+                generator_loss, generator_log_dict = self.model.generator_loss(
+                    video_state=video_state,
+                    audio_state=audio_state,
+                    video_latent_num_frames=video_latent_num_frames,
+                    conditional_dict=conditional_dict,
+                    unconditional_dict=unconditional_dict,
+                )
+                scaled_loss = generator_loss / self.accumulation_steps
+                scaled_loss.backward()
+
+                if self.step_generator % self.accumulation_steps == 0:
+                    if hasattr(self.model.generator, "clip_grad_norm_"):
+                        generator_grad_norm = self.model.generator.clip_grad_norm_(self.max_grad_norm)
+                    else:
+                        generator_grad_norm = torch.nn.utils.clip_grad_norm_(
+                            self.model.generator.parameters(), self.max_grad_norm
+                        )
+                    update_params_flag_generator = True
+                else:
+                    generator_grad_norm = torch.tensor(0.0, device=self.device)
+
+                generator_log_dict.update({
+                    "generator_loss": generator_loss.detach().item(),
+                    "generator_grad_norm": generator_grad_norm.detach().item(),
+                })
+                del scaled_loss, generator_loss, generator_grad_norm
+                torch.cuda.empty_cache()
+                return generator_log_dict, update_params_flag_generator, update_params_flag_critic
+
+            critic_loss, critic_log_dict = self.model.critic_loss(
+                video_state=video_state,
+                audio_state=audio_state,
+                video_latent_num_frames=video_latent_num_frames,
+                conditional_dict=conditional_dict,
+                unconditional_dict=unconditional_dict,
+            )
+            scaled_critic_loss = critic_loss / self.accumulation_steps
+            scaled_critic_loss.backward()
+
+            if self.step_critic % self.accumulation_steps == 0:
+                if hasattr(self.model.fake_score, "clip_grad_norm_"):
+                    critic_grad_norm = self.model.fake_score.clip_grad_norm_(self.max_grad_norm)
+                else:
+                    critic_grad_norm = torch.nn.utils.clip_grad_norm_(
+                        self.model.fake_score.parameters(), self.max_grad_norm
+                    )
+                update_params_flag_critic = True
+            else:
+                critic_grad_norm = torch.tensor(0.0, device=self.device)
+
+            critic_log_dict.update({
+                "critic_loss": critic_loss.detach().item(),
+                "critic_grad_norm": critic_grad_norm.detach().item(),
+            })
+            del scaled_critic_loss, critic_loss, critic_grad_norm
+            torch.cuda.empty_cache()
+            return critic_log_dict, update_params_flag_generator, update_params_flag_critic
+
         # Train generator
         if train_generator:
 

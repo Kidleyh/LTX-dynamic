@@ -1,0 +1,139 @@
+# =============================================================================
+# LTX-2.3 Bidirectional DMD, 4-node 512x768 121f stable test config
+# Mirrors the currently stable causal run knobs:
+# - 1024x1536, 249 frames (LTX-aligned length closest to 250)
+# - official-style 8 denoising steps
+# - seq_steps_per_update=1
+# - batch_size=1
+# - normal optimizer (not 8-bit)
+# - model/FSDP CPU offload enabled by launch script and config
+# =============================================================================
+
+model_name: ltx2_av
+checkpoint_path: /gemini/platform/public/aigc/human_guozz2/code/zhangyan/DS_LTX23/model_output/LTX2.3-I2AV-full-0618/step-27000.safetensors
+gemma_path: /gemini/platform/public/aigc/human_guozz2/model/gemma-3-12b-it-qat-q4_0-unquantized
+
+# -----------------------------------------------------------------------------
+# Task
+# -----------------------------------------------------------------------------
+generator_task: bidirectional_av
+real_task_type: bidirectional_av
+fake_task_type: bidirectional_av
+causal: false
+backward_simulation: true
+trainer: dmd_ltx23
+distribution_loss: bidirectional_dmd_ltx23
+
+# -----------------------------------------------------------------------------
+# DMD hyperparameters
+# -----------------------------------------------------------------------------
+generator_grad:
+  model: true
+real_score_grad:
+  model: false
+fake_score_grad:
+  model: true
+
+denoising_step_list:
+  - 1000
+  - 994
+  - 988
+  - 981
+  - 975
+  - 909
+  - 725
+  - 422
+num_train_timestep: 1000
+timestep_shift: 5.0
+
+denoising_loss_type: velocity
+distillation_loss: dmd
+
+real_video_guidance_scale: 3.0
+real_audio_guidance_scale: 5.0
+guidance_scale: 3.0
+
+# -----------------------------------------------------------------------------
+# Optimizer and training specs
+# -----------------------------------------------------------------------------
+batch_size: 1
+total_batch_size: 64
+accumulation_steps: 2
+dataloader_num_workers: 1
+gc_interval: 100
+
+lr: 2.0e-05
+generator_lr: 2.0e-05
+critic_lr: 2.0e-05
+beta1: 0.9
+beta2: 0.999
+beta1_critic: 0.0
+beta2_critic: 0.999
+weight_decay: 0.01
+lr_scheduler: constant_with_warmup
+lr_warmup_steps: 100
+
+video_loss_weight: 1.0
+audio_loss_weight: 1.0
+audio_start_step: 0
+
+dfake_gen_update_ratio: 5
+max_grad_norm: 3.0
+gradient_checkpointing: true
+mixed_precision_type: bf16
+mixed_precision: true
+scheduler_type: constant
+use_8bit_optimizer: false
+
+# -----------------------------------------------------------------------------
+# Data and resolution
+# -----------------------------------------------------------------------------
+dataset_type: unified
+data_path: /path/to/data/prompts.txt
+dataset_paths_txt: packages/ltx-distillation/src/ltx_distillation/data/dataset_txts/debug_hn.txt
+train_data_meta: "/gemini/platform/public/aigc/human_guozz2/data/basemodel_train/classification/all_classfication/sample_stage2/motion_50_5w.json"
+unified_dataset_max_items: 20000
+enable_bucket: true
+
+video_sample_n_frames: 249
+video_num_training_latents: 32
+video_height: 1024
+video_width: 1536
+video_sample_size: 1536
+video_sample_stride: 1.042
+frame_rate: 24
+image_or_video_shape: [1, 32, 16, 128, 192]
+num_train_epochs: 2
+num_frame_per_block: 3
+seq_steps_per_update: 1
+
+negative_prompt: "blurry, out of focus, overexposed, underexposed, low contrast, washed out colors, excessive noise, poor lighting, flickering, motion blur, distorted proportions, unnatural skin tones, artifacts around text, inconsistent perspective, camera shake, incorrect depth of field, background too sharp, background clutter, distracting reflections, harsh shadows, inconsistent lighting direction, color banding, cartoonish rendering, 3D CGI look, unrealistic materials, uncanny valley effect, incorrect ethnicity, wrong gender, exaggerated expressions, wrong gaze direction, mismatched lip sync, silent or muted audio, distorted voice, robotic voice, echo, background noise, off-sync audio, incorrect dialogue, added dialogue, repetitive speech, jittery movement, awkward pauses, incorrect timing, unnatural transitions, inconsistent framing, tilted camera, flat lighting, inconsistent tone, cinematic oversaturation, stylized filters, or AI artifacts."
+
+# -----------------------------------------------------------------------------
+# Distributed and hardware
+# -----------------------------------------------------------------------------
+sharding_strategy: hybrid_full
+generator_fsdp_wrap_strategy: size
+real_score_fsdp_wrap_strategy: size
+fake_score_fsdp_wrap_strategy: size
+text_encoder_fsdp_wrap_strategy: size
+
+model_cpu_offload: true
+low_vram: false
+
+# -----------------------------------------------------------------------------
+# Logging and benchmark
+# -----------------------------------------------------------------------------
+output_path: ./outputs/stage1_bidirectional_dmd
+log_iters: 500
+seed: 42
+
+wandb_project: OmniForcing
+wandb_entity: your-wandb-entity
+disable_wandb: true
+disable_tensorboard: false
+
+benchmark_enabled: true
+benchmark_iters: 50
+benchmark_video_fps: 24
+benchmark_audio_sample_rate: 24000

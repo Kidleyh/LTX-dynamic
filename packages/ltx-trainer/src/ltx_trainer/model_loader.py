@@ -16,6 +16,7 @@ Example usage:
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -39,6 +40,124 @@ if TYPE_CHECKING:
 def _to_torch_device(device: Device) -> torch.device:
     """Convert device specification to torch.device."""
     return torch.device(device) if isinstance(device, str) else device
+
+
+_DEFAULT_FULL_CHECKPOINT_PATH = (
+    "/gemini/platform/public/aigc/human_guozz2/model/LTX-2.3/"
+    "ltx-2.3-22b-dev.safetensors"
+)
+
+
+def _checkpoint_has_model_config(checkpoint_path: str | Path) -> bool:
+    """Return True when a safetensors checkpoint carries LTX model config metadata."""
+    path = str(checkpoint_path)
+    if not path.endswith(".safetensors"):
+        return True
+
+    import safetensors
+
+    try:
+        with safetensors.safe_open(path, framework="pt") as f:
+            metadata = f.metadata()
+    except Exception:
+        return True
+    return metadata is not None and "config" in metadata
+
+
+def _resolve_full_checkpoint_path(checkpoint_path: str | Path) -> str:
+    """Use a full LTX checkpoint for component metadata when a checkpoint is weights-only."""
+    path = str(checkpoint_path)
+    if _checkpoint_has_model_config(path):
+        return path
+
+    fallback = os.environ.get("LTX_FULL_CHECKPOINT_PATH") or os.environ.get("LTX_BASE_CHECKPOINT_PATH")
+    fallback = fallback or _DEFAULT_FULL_CHECKPOINT_PATH
+    if fallback == path:
+        return path
+    if not Path(fallback).exists():
+        logger.warning(
+            "Checkpoint %s has no model config metadata, but fallback full checkpoint "
+            "does not exist: %s",
+            path,
+            fallback,
+        )
+        return path
+    if not _checkpoint_has_model_config(fallback):
+        logger.warning(
+            "Checkpoint %s has no model config metadata, and fallback checkpoint also "
+            "has no model config metadata: %s",
+            path,
+            fallback,
+        )
+        return path
+
+    logger.warning(
+        "Checkpoint %s has no model config metadata; using %s for model structure "
+        "and shared non-transformer components.",
+        path,
+        fallback,
+    )
+    return fallback
+
+
+def _remap_transformer_checkpoint_key(key: str) -> str | None:
+    """Accept raw transformer-only checkpoints and common wrapped transformer prefixes."""
+    non_transformer_prefixes = (
+        "first_stage_model.",
+        "text_encoder.",
+        "text_encoder_2.",
+        "conditioner.",
+        "vae.",
+        "video_vae.",
+        "audio_vae.",
+        "vocoder.",
+        "embeddings_processor.",
+    )
+    if key.startswith(non_transformer_prefixes):
+        return None
+    for prefix in (
+        "model.diffusion_model.",
+        "model.velocity_model.",
+        "diffusion_model.",
+        "velocity_model.",
+    ):
+        if key.startswith(prefix):
+            return key[len(prefix):]
+    if key.startswith("model."):
+        return key[len("model."):]
+    return key
+
+
+def _load_transformer_overlay(
+    model: "LTXModel",
+    checkpoint_path: str | Path,
+    device: torch.device,
+    dtype: torch.dtype | None,
+) -> "LTXModel":
+    """Overlay a transformer-only safetensors checkpoint on a full-checkpoint model."""
+    from safetensors.torch import load_file
+
+    raw_sd = load_file(str(checkpoint_path), device=str(device))
+    overlay_sd = {}
+    for key, value in raw_sd.items():
+        new_key = _remap_transformer_checkpoint_key(key)
+        if new_key is None:
+            continue
+        overlay_sd[new_key] = value.to(dtype=dtype) if dtype is not None else value
+
+    missing, unexpected = model.load_state_dict(overlay_sd, strict=False)
+    logger.warning(
+        "Loaded transformer overlay from %s: tensors=%d missing=%d unexpected=%d",
+        checkpoint_path,
+        len(overlay_sd),
+        len(missing),
+        len(unexpected),
+    )
+    if missing:
+        logger.warning("Transformer overlay missing keys sample: %s", missing[:10])
+    if unexpected:
+        logger.warning("Transformer overlay unexpected keys sample: %s", unexpected[:10])
+    return model
 
 
 # =============================================================================
@@ -65,11 +184,16 @@ def load_transformer(
         LTXModelConfigurator,
     )
 
-    return SingleGPUModelBuilder(
-        model_path=str(checkpoint_path),
+    model_path = _resolve_full_checkpoint_path(checkpoint_path)
+    model = SingleGPUModelBuilder(
+        model_path=model_path,
         model_class_configurator=LTXModelConfigurator,
         model_sd_ops=LTXV_MODEL_COMFY_RENAMING_MAP,
     ).build(device=_to_torch_device(device), dtype=dtype)
+
+    if model_path != str(checkpoint_path):
+        model = _load_transformer_overlay(model, checkpoint_path, _to_torch_device(device), dtype)
+    return model
 
 def load_causal_transformer(
     checkpoint_path: str | Path,
@@ -94,11 +218,16 @@ def load_causal_transformer(
     # revise the class variable
     CausalLTXModelConfigurator.use_flex_attention = use_flex_attention
 
-    return SingleGPUModelBuilder(
-        model_path=str(checkpoint_path),
+    model_path = _resolve_full_checkpoint_path(checkpoint_path)
+    model = SingleGPUModelBuilder(
+        model_path=model_path,
         model_class_configurator=CausalLTXModelConfigurator,
         model_sd_ops=LTXV_MODEL_COMFY_RENAMING_MAP,
     ).build(device=_to_torch_device(device), dtype=dtype)
+
+    if model_path != str(checkpoint_path):
+        model = _load_transformer_overlay(model, checkpoint_path, _to_torch_device(device), dtype)
+    return model
 
 
 def load_video_vae_encoder(
@@ -118,7 +247,7 @@ def load_video_vae_encoder(
     from ltx_core.model.video_vae import VAE_ENCODER_COMFY_KEYS_FILTER, VideoEncoderConfigurator
 
     return SingleGPUModelBuilder(
-        model_path=str(checkpoint_path),
+        model_path=_resolve_full_checkpoint_path(checkpoint_path),
         model_class_configurator=VideoEncoderConfigurator,
         model_sd_ops=VAE_ENCODER_COMFY_KEYS_FILTER,
     ).build(device=_to_torch_device(device), dtype=dtype)
@@ -141,7 +270,7 @@ def load_video_vae_decoder(
     from ltx_core.model.video_vae import VAE_DECODER_COMFY_KEYS_FILTER, VideoDecoderConfigurator
 
     return SingleGPUModelBuilder(
-        model_path=str(checkpoint_path),
+        model_path=_resolve_full_checkpoint_path(checkpoint_path),
         model_class_configurator=VideoDecoderConfigurator,
         model_sd_ops=VAE_DECODER_COMFY_KEYS_FILTER,
     ).build(device=_to_torch_device(device), dtype=dtype)
@@ -164,7 +293,7 @@ def load_audio_vae_encoder(
     from ltx_core.model.audio_vae import AUDIO_VAE_ENCODER_COMFY_KEYS_FILTER, AudioEncoderConfigurator
 
     return SingleGPUModelBuilder(
-        model_path=str(checkpoint_path),
+        model_path=_resolve_full_checkpoint_path(checkpoint_path),
         model_class_configurator=AudioEncoderConfigurator,
         model_sd_ops=AUDIO_VAE_ENCODER_COMFY_KEYS_FILTER,
     ).build(device=_to_torch_device(device), dtype=dtype)
@@ -187,7 +316,7 @@ def load_audio_vae_decoder(
     from ltx_core.model.audio_vae import AUDIO_VAE_DECODER_COMFY_KEYS_FILTER, AudioDecoderConfigurator
 
     return SingleGPUModelBuilder(
-        model_path=str(checkpoint_path),
+        model_path=_resolve_full_checkpoint_path(checkpoint_path),
         model_class_configurator=AudioDecoderConfigurator,
         model_sd_ops=AUDIO_VAE_DECODER_COMFY_KEYS_FILTER,
     ).build(device=_to_torch_device(device), dtype=dtype)
@@ -210,7 +339,7 @@ def load_vocoder(
     from ltx_core.model.audio_vae import VOCODER_COMFY_KEYS_FILTER, VocoderConfigurator
 
     return SingleGPUModelBuilder(
-        model_path=str(checkpoint_path),
+        model_path=_resolve_full_checkpoint_path(checkpoint_path),
         model_class_configurator=VocoderConfigurator,
         model_sd_ops=VOCODER_COMFY_KEYS_FILTER,
     ).build(device=_to_torch_device(device), dtype=dtype)
@@ -289,7 +418,7 @@ def load_embeddings_processor(
     torch_device = _to_torch_device(device)
 
     return SingleGPUModelBuilder(
-        model_path=str(checkpoint_path),
+        model_path=_resolve_full_checkpoint_path(checkpoint_path),
         model_class_configurator=EmbeddingsProcessorConfigurator,
         model_sd_ops=EMBEDDINGS_PROCESSOR_KEY_OPS,
     ).build(device=torch_device, dtype=dtype)
