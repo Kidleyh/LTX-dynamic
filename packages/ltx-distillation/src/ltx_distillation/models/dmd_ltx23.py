@@ -25,6 +25,7 @@ from ltx_distillation.models.ltx_wrapper import LTX2DiffusionWrapper, create_ltx
 from ltx_distillation.models.text_encoder_wrapper import GemmaTextEncoderWrapper, create_text_encoder_wrapper
 from ltx_distillation.models.vae_wrapper import VideoVAEWrapper, AudioVAEWrapper, create_vae_wrappers
 from ltx_distillation.loss import get_denoising_loss
+from ltx_distillation.utils.lora_dmd import apply_lora_dmd
 try:
     from ltx_causal.wrapper import CausalLTX2DiffusionWrapper
     from ltx_causal.attention.mask_builder import compute_av_blocks
@@ -561,6 +562,8 @@ class LTX23DMD(nn.Module):
                             )
                             break
             print("[Stage2] Stage1 checkpoint load complete")
+
+        apply_lora_dmd(self, args)
 
     def _round_align(self, value: float) -> int:
         if self.alignment_rounding == "floor":

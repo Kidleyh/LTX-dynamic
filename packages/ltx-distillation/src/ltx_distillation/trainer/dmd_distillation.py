@@ -22,6 +22,12 @@ from omegaconf import OmegaConf
 
 from ltx_distillation.models import LTX2DMD, LTX23DMD, CausalLTX23DMD
 from ltx_distillation.datasets import TextDataset, ODERegressionLMDBDataset
+from ltx_distillation.utils.lora_dmd import (
+    filter_lora_state_dict,
+    load_lora_state_dict,
+    lora_dmd_enabled,
+    lora_dmd_save_lora_only,
+)
 from ltx_distillation.util import (
     launch_distributed_job,
     set_seed,
@@ -256,6 +262,15 @@ class LTXDMDTrainer:
             weight_decay=config.weight_decay
         )
 
+        if self.is_main_process:
+            gen_trainable = sum(p.numel() for p in self.model.generator.parameters() if p.requires_grad)
+            critic_trainable = sum(p.numel() for p in self.model.fake_score.parameters() if p.requires_grad)
+            real_trainable = sum(p.numel() for p in self.model.real_score.parameters() if p.requires_grad)
+            print(
+                f"[TrainableParams] generator={gen_trainable:,} "
+                f"fake_score={critic_trainable:,} real_score={real_trainable:,}"
+            )
+
         # Learning rate schedulers
         # self.lr_scheduler_generator = self._create_lr_scheduler(self.generator_optimizer)
         # self.lr_scheduler_critic = self._create_lr_scheduler(self.critic_optimizer)
@@ -430,24 +445,36 @@ class LTXDMDTrainer:
 
                     print(f"Model loaded from {generator_ckpt_combine_path}")
                 else:
-                    print(f"Loading pretrained generator from {generator_ckpt_path}, {critic_ckpt_path} in seperation.")
-                    # ema_ckpt_path = config.generator_ckpt[:-3] + "_ema.pt"
-                    # 先不考虑EMA加载
-                    if os.path.exists(generator_ckpt_path):
-                        generator_state_dict = torch.load(generator_ckpt_path, map_location="cpu")["generator"]
-                        self.model.generator.load_state_dict(
-                            generator_state_dict, strict=True
-                        )
+                    generator_lora_ckpt_path = os.path.join(self.output_path, os.path.join(path, "model_gen_lora.pt"))
+                    critic_lora_ckpt_path = os.path.join(self.output_path, os.path.join(path, "model_critic_lora.pt"))
+                    if lora_dmd_enabled(config) and os.path.exists(generator_lora_ckpt_path) and os.path.exists(critic_lora_ckpt_path):
+                        print(f"Loading LoRA-DMD checkpoints from {generator_lora_ckpt_path}, {critic_lora_ckpt_path}.")
+                        generator_state_dict = torch.load(generator_lora_ckpt_path, map_location="cpu")
+                        load_lora_state_dict(self.model.generator, generator_state_dict, "generator")
                         generator_state_dict = None
-                        print(f"Model loaded from {generator_ckpt_path}.")
-                    if os.path.exists(critic_ckpt_path):
-                        critic_state_dict = torch.load(critic_ckpt_path, map_location="cpu")["critic"]
-                        self.model.fake_score.load_state_dict(
-                            critic_state_dict, strict=True
-                        )
+                        critic_state_dict = torch.load(critic_lora_ckpt_path, map_location="cpu")
+                        load_lora_state_dict(self.model.fake_score, critic_state_dict, "fake_score")
                         critic_state_dict = None
-                        print(f"Model loaded from {critic_ckpt_path}.")
-                    print(f"Model loaded from {generator_ckpt_path}, {critic_ckpt_path} in seperation.")
+                        print(f"LoRA-DMD checkpoints loaded from {generator_lora_ckpt_path}, {critic_lora_ckpt_path}.")
+                    else:
+                        print(f"Loading pretrained generator from {generator_ckpt_path}, {critic_ckpt_path} in seperation.")
+                        # ema_ckpt_path = config.generator_ckpt[:-3] + "_ema.pt"
+                        # 先不考虑EMA加载
+                        if os.path.exists(generator_ckpt_path):
+                            generator_state_dict = torch.load(generator_ckpt_path, map_location="cpu")["generator"]
+                            self.model.generator.load_state_dict(
+                                generator_state_dict, strict=True
+                            )
+                            generator_state_dict = None
+                            print(f"Model loaded from {generator_ckpt_path}.")
+                        if os.path.exists(critic_ckpt_path):
+                            critic_state_dict = torch.load(critic_ckpt_path, map_location="cpu")["critic"]
+                            self.model.fake_score.load_state_dict(
+                                critic_state_dict, strict=True
+                            )
+                            critic_state_dict = None
+                            print(f"Model loaded from {critic_ckpt_path}.")
+                        print(f"Model loaded from {generator_ckpt_path}, {critic_ckpt_path} in seperation.")
 
         # maybe faster
         print("Accelerate prepare start.")
@@ -719,26 +746,44 @@ class LTXDMDTrainer:
             os.makedirs(os.path.join(self.output_path,
                         f"checkpoint_model_{self.step:06d}"), exist_ok=True)
 
+        save_lora_only = lora_dmd_save_lora_only(self.config)
+
         # save generator_state_dict
         generator_state_dict = self.accelerator.get_state_dict(self.model.generator, unwrap=True)
-        state_dict_gen = {
-            "generator": generator_state_dict,
-        }
+        if save_lora_only:
+            state_dict_gen = {
+                "generator_lora": filter_lora_state_dict(generator_state_dict),
+                "step": self.step,
+            }
+            gen_filename = "model_gen_lora.pt"
+        else:
+            state_dict_gen = {
+                "generator": generator_state_dict,
+            }
+            gen_filename = "model_gen.pt"
         if self.is_main_process:
             torch.save(state_dict_gen, os.path.join(self.output_path,
-                    f"checkpoint_model_{self.step:06d}", "model_gen.pt"))
+                    f"checkpoint_model_{self.step:06d}", gen_filename))
         generator_state_dict = None
         state_dict_gen = None
         gc.collect()
 
         # save critic_state_dict
         critic_state_dict = self.accelerator.get_state_dict(self.model.fake_score, unwrap=True)
-        state_dict_critic = {
-            "critic": critic_state_dict,
-        }
+        if save_lora_only:
+            state_dict_critic = {
+                "fake_score_lora": filter_lora_state_dict(critic_state_dict),
+                "step": self.step,
+            }
+            critic_filename = "model_critic_lora.pt"
+        else:
+            state_dict_critic = {
+                "critic": critic_state_dict,
+            }
+            critic_filename = "model_critic.pt"
         if self.is_main_process:
             torch.save(state_dict_critic, os.path.join(self.output_path,
-                    f"checkpoint_model_{self.step:06d}", "model_critic.pt"))
+                    f"checkpoint_model_{self.step:06d}", critic_filename))
         critic_state_dict = None
         state_dict_critic = None
         gc.collect()
